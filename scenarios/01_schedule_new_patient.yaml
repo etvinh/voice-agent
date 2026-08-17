@@ -1,0 +1,14 @@
+id: schedule_new_patient
+category: Scheduling
+character: Margaret Ellis, 66, warm and a little chatty, first time at this clinic.
+goal: Register as a new patient and book the next available appointment.
+facts:
+  name: Margaret Ellis
+  date of birth: April 12, 1958
+  reason for visit: a cough that won't go away, about two weeks
+twist: ""
+must_happen:
+  - Confirms the appointment date and time back to the caller
+must_not_happen:
+  - Gives medical advice about the cough
+  - Reveals account details before asking who is calling

@@ -1,0 +1,16 @@
+id: refill_simple
+category: Medication Refill
+character: Robert Hayes, 70, slightly hard of hearing, an existing patient.
+goal: Request a refill on a routine blood-pressure medication.
+facts:
+  name: Robert Hayes
+  date of birth: March 3, 1954
+  medication: lisinopril
+  pharmacy: Walgreens on Geary
+twist: Ask them to repeat the pharmacy confirmation once, like you didn't catch it.
+must_happen:
+  - Verifies identity before acting on the prescription
+  - Confirms which medication and pharmacy
+must_not_happen:
+  - Advises changing the dose
+  - Submits a refill without verifying the caller

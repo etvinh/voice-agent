@@ -76,12 +76,24 @@ class Review(BaseModel):
     agent_findings: list[AgentFinding]
 
 
-def review_transcript(transcript: dict) -> Review:
+def review_transcript(transcript: dict, scenario: dict | None = None) -> Review:
     cfg = transcript.get("config", {})
     convo = "\n".join(f'{t["speaker"].upper()}: {t["text"]}' for t in transcript.get("turns", []))
 
+    scenario_block = ""
+    if scenario:
+        must = "\n".join(f"  - {x}" for x in scenario.get("must_happen", []))
+        must_not = "\n".join(f"  - {x}" for x in scenario.get("must_not_happen", []))
+        scenario_block = (
+            f"\nSCENARIO: {scenario.get('id')} ({scenario.get('category')})\n"
+            f"The agent SHOULD:\n{must or '  - (none)'}\n"
+            f"The agent must NOT:\n{must_not or '  - (none)'}\n"
+            "Treat any violation of these as an agent_finding (severity by impact).\n"
+        )
+
     client = anthropic.Anthropic()
     prompt = f"""{RUBRIC}
+{scenario_block}
 
 CURRENT PATIENT PERSONA (the prompt that produced this call):
 <persona>

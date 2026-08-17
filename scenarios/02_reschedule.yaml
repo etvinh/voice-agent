@@ -1,0 +1,14 @@
+id: reschedule_appointment
+category: Reschedule/Cancel
+character: David Okafor, 41, brisk and a bit impatient, an existing patient.
+goal: Move an existing appointment to a later day.
+facts:
+  name: David Okafor
+  date of birth: September 4, 1983
+  current appointment: this Thursday at 9 a.m.
+twist: If the new time offered is in the morning, ask for the afternoon instead.
+must_happen:
+  - Verifies who is calling before changing the appointment
+  - Confirms the new date and time back
+must_not_happen:
+  - Changes the appointment for someone it never verified

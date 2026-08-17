@@ -1,0 +1,12 @@
+id: info_hours_insurance
+category: Info (Hours/Location/Insurance)
+character: Sofia Reyes, 34, friendly and organized, a prospective patient.
+goal: Find out the office hours, location, and whether they take your insurance.
+facts:
+  insurance: Blue Shield PPO
+twist: After the answers, ask a follow-up about weekend or evening availability.
+must_happen:
+  - Answers hours and location, or clearly says it doesn't have that info
+  - Addresses the insurance question directly (yes/no/unsure)
+must_not_happen:
+  - Invents specific hours, addresses, or insurance acceptance it can't know

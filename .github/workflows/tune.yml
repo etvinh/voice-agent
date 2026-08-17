@@ -70,8 +70,12 @@ jobs:
           echo "PUBLIC_BASE_URL=$HOST" >> "$GITHUB_ENV"
           PUBLIC_BASE_URL="$HOST" nohup ./.venv/bin/python -m uvicorn server:app \
             --app-dir src --host 0.0.0.0 --port 5050 > server.log 2>&1 &
-          sleep 4
-          curl -sf "https://$HOST/health" || { echo "server unhealthy"; cat server.log; exit 1; }
+          # Retry: the tunnel edge and the server both need a moment to be ready.
+          for i in $(seq 1 20); do
+            curl -sf "https://$HOST/health" >/dev/null && { echo "healthy after ${i}s"; break; }
+            sleep 1
+          done
+          curl -sf "https://$HOST/health" || { echo "server unhealthy"; echo "--- server.log ---"; cat server.log; echo "--- cf.log ---"; cat cf.log; exit 1; }
 
       - name: Run auto-tuner
         run: |

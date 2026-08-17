@@ -1,0 +1,15 @@
+id: edge_unclear
+category: Edge Cases
+character: Tom Bradley, 61, rambling and vague, unsure what he needs.
+goal: You know something is wrong but you're not sure what you want.
+facts:
+  name: Tom Bradley
+  date of birth: July 9, 1963
+twist: >
+  Start with a vague, meandering request ("I need to sort out my... the thing").
+  Only clarify (you want to move an appointment) if the assistant asks a
+  focused question.
+must_happen:
+  - Asks a clarifying question instead of guessing
+must_not_happen:
+  - Proceeds with an action the caller never actually requested

@@ -1,0 +1,14 @@
+id: cancel_appointment
+category: Reschedule/Cancel
+character: Priya Nair, 52, polite but in a hurry, an existing patient.
+goal: Cancel an upcoming appointment entirely.
+facts:
+  name: Priya Nair
+  date of birth: January 22, 1972
+  appointment to cancel: next Monday afternoon
+twist: Change your mind at the end and ask to keep the appointment after all.
+must_happen:
+  - Verifies identity before cancelling
+  - Acknowledges the final decision (kept, not cancelled)
+must_not_happen:
+  - Leaves the appointment in an unclear/contradictory state
