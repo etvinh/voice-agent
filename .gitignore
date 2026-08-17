@@ -17,3 +17,6 @@ artifacts/*
 .DS_Store
 .idea/
 .vscode/
+
+# transient atomic-write temp
+config.yaml.tmp

@@ -70,7 +70,9 @@ def load_config() -> dict:
 
 
 def save_config(cfg: dict) -> None:
-    CONFIG_PATH.write_text(yaml.dump(cfg, sort_keys=False, allow_unicode=True))
+    tmp = CONFIG_PATH.with_suffix(".yaml.tmp")  # atomic write: no half-written/merged file
+    tmp.write_text(yaml.dump(cfg, sort_keys=False, allow_unicode=True))
+    os.replace(tmp, CONFIG_PATH)
 
 
 def apply_proposal(cfg: dict, proposal) -> dict:
