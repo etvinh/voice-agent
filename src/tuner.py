@@ -88,6 +88,7 @@ def place_call() -> str:
     call = Client(sid, token).calls.create(
         to=to, from_=frm, url=f"https://{base}/twiml",
         record=True, recording_channels="dual",
+        time_limit=180,             # 3-min hard cap
     )
     return call.sid
 

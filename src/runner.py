@@ -67,6 +67,7 @@ def place_call() -> str:
         from_=os.environ["TWILIO_FROM_NUMBER"],
         url=f"https://{base}/twiml",
         record=True, recording_channels="dual",
+        time_limit=180,             # 3-min hard cap
     )
     return call.sid
 

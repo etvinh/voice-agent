@@ -15,6 +15,10 @@ vad:
 # Seconds to let the goodbye audio play before hanging up.
 hangup_grace_seconds: 2.0
 
+# Hard cap on a single call. The server force-hangs-up at this point even if the
+# patient never ends the call. Twilio also enforces its own time_limit.
+max_call_seconds: 180
+
 # Scenario-agnostic caller behavior. The runner composes this with each
 # scenario's character/goal/facts. The naturalness tuner improves THIS block.
 base_persona: |

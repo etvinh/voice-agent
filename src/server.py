@@ -313,6 +313,14 @@ async def media_stream(twilio_ws: WebSocket):
         # assistant (callee) to greet first — server VAD triggers its reply.
         await openai_ws.send(json.dumps(session_update_payload(cfg)))
 
+        async def watchdog():
+            """Hard cap: force hang-up if the call runs past max_call_seconds."""
+            await asyncio.sleep(cfg.get("max_call_seconds", 180))
+            log.warning("max_call_seconds reached -> force hang up %s", state["call_sid"])
+            await hang_up()
+
+        watchdog_task = asyncio.create_task(watchdog())
+
         async def twilio_to_openai():
             """Forward the agent's audio up to OpenAI."""
             try:
@@ -373,7 +381,10 @@ async def media_stream(twilio_ws: WebSocket):
                 elif t == "error":
                     log.error("OA ERROR: %s", json.dumps(evt))
 
-        await asyncio.gather(twilio_to_openai(), openai_to_twilio())
+        try:
+            await asyncio.gather(twilio_to_openai(), openai_to_twilio())
+        finally:
+            watchdog_task.cancel()
 
     transcript = write_transcript(state["call_sid"], cfg, turns, barge_ins)
     if transcript:

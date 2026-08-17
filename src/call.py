@@ -35,6 +35,7 @@ def main() -> None:
         url=twiml_url,
         record=True,
         recording_channels="dual",  # assistant + patient on separate channels
+        time_limit=180,             # Twilio hard-hangs-up after 3 min (matches config)
     )
 
     print(f"Calling {to_number}")
