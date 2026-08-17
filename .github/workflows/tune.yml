@@ -1,0 +1,101 @@
+name: auto-tune-patient
+
+# Manual trigger (and an optional weekly schedule). NOT on push — every run makes
+# real, billed phone calls to the target assistant.
+on:
+  workflow_dispatch:
+    inputs:
+      max_iterations:
+        description: "Max tuning iterations"
+        default: "4"
+      calls_per_iter:
+        description: "Calls per iteration"
+        default: "2"
+      max_calls:
+        description: "Hard call budget for the whole run"
+        default: "12"
+  # schedule:
+  #   - cron: "0 9 * * 1"   # Mondays 09:00 UTC — uncomment to run weekly
+
+concurrency:
+  group: auto-tune          # never run two tuning jobs at once (they share one target)
+  cancel-in-progress: false
+
+permissions:
+  contents: write           # push the tuned config to the auto-tune branch
+
+jobs:
+  tune:
+    runs-on: ubuntu-latest
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
+      TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
+      TWILIO_FROM_NUMBER: ${{ secrets.TWILIO_FROM_NUMBER }}
+      TARGET_AGENT_NUMBER: ${{ secrets.TARGET_AGENT_NUMBER }}
+      STREAM_SECRET: ${{ secrets.STREAM_SECRET }}
+      TUNE_MAX_ITERATIONS: ${{ github.event.inputs.max_iterations }}
+      TUNE_CALLS_PER_ITER: ${{ github.event.inputs.calls_per_iter }}
+      TUNE_MAX_CALLS: ${{ github.event.inputs.max_calls }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install deps
+        run: |
+          python -m venv .venv
+          ./.venv/bin/python -m pip install --quiet --upgrade pip
+          ./.venv/bin/python -m pip install --quiet -r requirements.txt
+
+      - name: Install cloudflared
+        run: |
+          curl -sSL -o /usr/local/bin/cloudflared \
+            https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+          chmod +x /usr/local/bin/cloudflared
+          cloudflared --version
+
+      - name: Start tunnel and server
+        run: |
+          nohup cloudflared tunnel --url http://localhost:5050 > cf.log 2>&1 &
+          for i in $(seq 1 20); do
+            URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' cf.log | head -1) && [ -n "$URL" ] && break
+            sleep 1
+          done
+          [ -z "$URL" ] && { echo "no tunnel url"; cat cf.log; exit 1; }
+          HOST=${URL#https://}
+          echo "PUBLIC_BASE_URL=$HOST" >> "$GITHUB_ENV"
+          PUBLIC_BASE_URL="$HOST" nohup ./.venv/bin/python -m uvicorn server:app \
+            --app-dir src --host 0.0.0.0 --port 5050 > server.log 2>&1 &
+          sleep 4
+          curl -sf "https://$HOST/health" || { echo "server unhealthy"; cat server.log; exit 1; }
+
+      - name: Run auto-tuner
+        run: |
+          git config user.name  "patient-sim-tuner"
+          git config user.email "actions@users.noreply.github.com"
+          git checkout -B auto-tune
+          ./.venv/bin/python src/tuner.py
+        # server logs help debug a failed run
+      - name: Server log tail
+        if: always()
+        run: tail -n 60 server.log || true
+
+      - name: Push tuned config to auto-tune branch
+        if: always()
+        run: git push --force origin auto-tune || echo "nothing to push"
+
+      - name: Upload all recordings and transcripts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: call-artifacts-${{ github.run_id }}
+          path: |
+            artifacts/**/recording.wav
+            artifacts/**/transcript.json
+            TUNING_LOG.md
+            config.yaml
+          retention-days: 90
