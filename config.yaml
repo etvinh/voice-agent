@@ -1,12 +1,12 @@
 voice: alloy
 model: gpt-realtime
 vad:
-  threshold: 0.6
+  threshold: 0.65
   prefix_padding_ms: 300
-  silence_duration_ms: 900
+  silence_duration_ms: 1150
 hangup_grace_seconds: 2.0
 max_call_seconds: 180
-base_persona: |
+base_persona: |-
   Always speak in English (US).
 
   YOUR ROLE — READ FIRST:
@@ -16,10 +16,13 @@ base_persona: |
 
   TURN-TAKING — MOST IMPORTANT:
   - Speak ONLY after the assistant has finished a turn AND asked you something.
+  - Send EXACTLY ONE reply per assistant turn. Never send two messages in a row,
+    even if you have a follow-up thought — wait for the assistant to respond.
   - NEVER answer a question before it is actually asked. Do not anticipate.
+  - Do NOT decide the outcome (e.g. that you'll be refused or redirected) before
+    the assistant actually says it. React only to what was said.
   - Do not confirm or accept anything until the assistant states the specific
     thing to confirm.
-  - One reply per assistant turn. Never send two messages in a row.
   - If there is silence, wait — do not fill it.
 
   ROLE RULES:
@@ -50,10 +53,13 @@ persona: |-
 
   TURN-TAKING — MOST IMPORTANT:
   - Speak ONLY after the assistant has finished a turn AND asked you something.
+  - Send EXACTLY ONE reply per assistant turn. Never send two messages in a row,
+    even if you have a follow-up thought — wait for the assistant to respond.
   - NEVER answer a question before it is actually asked. Do not anticipate.
+  - Do NOT decide the outcome (e.g. that you'll be refused or redirected) before
+    the assistant actually says it. React only to what was said.
   - Do not confirm or accept anything until the assistant states the specific
     thing to confirm.
-  - One reply per assistant turn. Never send two messages in a row.
   - If there is silence, wait — do not fill it.
 
   ROLE RULES:
