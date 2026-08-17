@@ -76,7 +76,8 @@ class Review(BaseModel):
     agent_findings: list[AgentFinding]
 
 
-def review_transcript(transcript: dict, scenario: dict | None = None) -> Review:
+def review_transcript(transcript: dict, scenario: dict | None = None,
+                      base_persona: str | None = None) -> Review:
     cfg = transcript.get("config", {})
     convo = "\n".join(f'{t["speaker"].upper()}: {t["text"]}' for t in transcript.get("turns", []))
 
@@ -91,9 +92,28 @@ def review_transcript(transcript: dict, scenario: dict | None = None) -> Review:
             "Treat any violation of these as an agent_finding (severity by impact).\n"
         )
 
+    persona_instruction = (
+        "- proposed_config.persona: the full revised persona text. Keep what works; "
+        "only change what the findings justify. Front-load the most important rules."
+    )
+    base_note = ""
+    if base_persona is not None:
+        base_note = (
+            "\nThe persona is a fixed SCENARIO block (character/goal/facts — DO NOT "
+            "change these) plus a reusable BASE behavior block, shared across many "
+            "scenarios:\n"
+            f"<base_persona>\n{base_persona}\n</base_persona>\n"
+        )
+        persona_instruction = (
+            "- proposed_config.persona: return an improved version of the BASE "
+            "behavior block ONLY (role, turn-taking, disclosure, delivery). Do NOT "
+            "include any character, name, goal, or scenario facts — the base is "
+            "shared across scenarios."
+        )
+
     client = anthropic.Anthropic()
     prompt = f"""{RUBRIC}
-{scenario_block}
+{scenario_block}{base_note}
 
 CURRENT PATIENT PERSONA (the prompt that produced this call):
 <persona>
@@ -109,8 +129,7 @@ TRANSCRIPT:
 {convo or "(no turns captured)"}
 
 Score the dimensions, then propose an IMPROVED config:
-- proposed_config.persona: the full revised persona text. Keep what works; only
-  change what the findings justify. Front-load the most important rules.
+{persona_instruction}
 - proposed_config.vad_threshold and vad_silence_duration_ms: raise silence_ms
   (e.g. +150-300) and/or threshold if turn_taking suffered from barge-ins; leave
   them if turn-taking was clean.

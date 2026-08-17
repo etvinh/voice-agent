@@ -29,8 +29,13 @@ from twilio.rest import Client
 
 from audio_reviewer import audio_review
 from reviewer import review_transcript
+from runner import compose_persona
 
 load_dotenv()
+
+# Naturalness is tuned on ONE representative scenario, but the improvements land
+# on the shared base_persona — so every scenario (and the attack loop) benefits.
+REP_SCENARIO = Path(os.environ.get("TUNE_SCENARIO", "scenarios/01_schedule_new_patient.yaml"))
 
 # How much the gpt-audio "does it sound human" score counts toward the combined
 # score the tuner optimizes. The rest is Claude's text/content/role review.
@@ -69,9 +74,9 @@ def save_config(cfg: dict) -> None:
 
 
 def apply_proposal(cfg: dict, proposal) -> dict:
-    """Return a new config with the reviewer's proposed persona + VAD applied."""
+    """Return a new config with the reviewer's proposed BASE persona + VAD applied."""
     new = json.loads(json.dumps(cfg))  # deep copy
-    new["persona"] = proposal.persona
+    new["base_persona"] = proposal.persona  # shared behavior, reused by every scenario
     new["vad"]["threshold"] = float(proposal.vad_threshold)
     new["vad"]["silence_duration_ms"] = int(proposal.vad_silence_duration_ms)
     return new
@@ -125,8 +130,12 @@ def combined_score(text_overall: int, audio: dict | None) -> float:
     return float(text_overall)
 
 
-def score_config():
-    """Run CALLS_PER_ITER calls, review text + audio, return (avg_combined, best_proposal)."""
+def score_config(cfg: dict):
+    """Compose base_persona + rep scenario, run calls, review naturalness of the BASE."""
+    rep = yaml.safe_load(REP_SCENARIO.read_text())
+    active = json.loads(json.dumps(cfg))
+    active["persona"] = compose_persona(cfg["base_persona"], rep)  # server reads config["persona"]
+    save_config(active)
     scored = []  # [(combined, proposed_config)]
     for _ in range(CALLS_PER_ITER):
         if _calls_made >= MAX_CALLS:
@@ -134,7 +143,7 @@ def score_config():
         transcript = run_call()
         if transcript is None:
             continue
-        review = review_transcript(transcript)
+        review = review_transcript(transcript, scenario=rep, base_persona=cfg["base_persona"])
         record_agent_findings(transcript["call_sid"], review)
         wav = ARTIFACTS_DIR / transcript["call_sid"] / "recording.wav"
         for _ in range(20):  # the server saves the WAV in the background; wait for it
@@ -186,8 +195,8 @@ def record_agent_findings(call_sid: str, review) -> None:
 
 def main() -> None:
     best_cfg = load_config()
-    print("Scoring baseline config...")
-    best_score, proposal = score_config()
+    print("Scoring baseline base_persona...")
+    best_score, proposal = score_config(best_cfg)
     if best_score is None:
         raise SystemExit("No calls completed — is the server + tunnel up and the target dialable?")
     log_line(f"## Tuning run\n- baseline avg overall: **{best_score:.1f}** "
@@ -204,10 +213,9 @@ def main() -> None:
         if proposal is None:
             break
 
-        print(f"\nIteration {i}: applying proposed config and re-scoring...")
+        print(f"\nIteration {i}: applying proposed base_persona and re-scoring...")
         candidate = apply_proposal(best_cfg, proposal)
-        save_config(candidate)
-        cand_score, cand_proposal = score_config()
+        cand_score, cand_proposal = score_config(candidate)
         if cand_score is None:
             save_config(best_cfg)  # revert
             break

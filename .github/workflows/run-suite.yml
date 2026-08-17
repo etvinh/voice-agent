@@ -1,31 +1,22 @@
-name: auto-tune-patient
+name: run-scenario-suite
 
-# Manual trigger (and an optional weekly schedule). NOT on push — every run makes
-# real, billed phone calls to the target assistant.
+# Manual trigger only — every run makes real, billed phone calls to the target.
 on:
   workflow_dispatch:
     inputs:
-      max_iterations:
-        description: "Max tuning iterations"
-        default: "4"
-      calls_per_iter:
-        description: "Calls per iteration"
-        default: "2"
-      max_calls:
-        description: "Hard call budget for the whole run"
-        default: "12"
-  # schedule:
-  #   - cron: "0 9 * * 1"   # Mondays 09:00 UTC — uncomment to run weekly
+      scenarios:
+        description: "Scenario files to run (space-separated), or blank for all"
+        default: ""
 
 concurrency:
-  group: auto-tune          # never run two tuning jobs at once (they share one target)
+  group: patient-calls        # never overlap with the tuner (they share one target)
   cancel-in-progress: false
 
 permissions:
-  contents: write           # push the tuned config to the auto-tune branch
+  contents: read
 
 jobs:
-  tune:
+  suite:
     runs-on: ubuntu-latest
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -35,12 +26,8 @@ jobs:
       TWILIO_FROM_NUMBER: ${{ secrets.TWILIO_FROM_NUMBER }}
       TARGET_AGENT_NUMBER: ${{ secrets.TARGET_AGENT_NUMBER }}
       STREAM_SECRET: ${{ secrets.STREAM_SECRET }}
-      TUNE_MAX_ITERATIONS: ${{ github.event.inputs.max_iterations }}
-      TUNE_CALLS_PER_ITER: ${{ github.event.inputs.calls_per_iter }}
-      TUNE_MAX_CALLS: ${{ github.event.inputs.max_calls }}
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -56,7 +43,6 @@ jobs:
           curl -sSL -o /usr/local/bin/cloudflared \
             https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
           chmod +x /usr/local/bin/cloudflared
-          cloudflared --version
 
       - name: Start tunnel and server
         run: |
@@ -70,38 +56,27 @@ jobs:
           echo "PUBLIC_BASE_URL=$HOST" >> "$GITHUB_ENV"
           PUBLIC_BASE_URL="$HOST" nohup ./.venv/bin/python -m uvicorn server:app \
             --app-dir src --host 0.0.0.0 --port 5050 > server.log 2>&1 &
-          # Retry: the tunnel edge and the server both need a moment to be ready.
           for i in $(seq 1 20); do
-            curl -sf "https://$HOST/health" >/dev/null && { echo "healthy after ${i}s"; break; }
+            curl -sf "https://$HOST/health" >/dev/null && { echo "healthy"; break; }
             sleep 1
           done
-          curl -sf "https://$HOST/health" || { echo "server unhealthy"; echo "--- server.log ---"; cat server.log; echo "--- cf.log ---"; cat cf.log; exit 1; }
+          curl -sf "https://$HOST/health" || { echo "unhealthy"; cat server.log cf.log; exit 1; }
 
-      - name: Run auto-tuner
-        run: |
-          git config user.name  "patient-sim-tuner"
-          git config user.email "actions@users.noreply.github.com"
-          git checkout -B auto-tune
-          ./.venv/bin/python src/tuner.py
-        # server logs help debug a failed run
+      - name: Run scenario suite
+        run: ./.venv/bin/python src/runner.py ${{ github.event.inputs.scenarios }}
+
       - name: Server log tail
         if: always()
         run: tail -n 60 server.log || true
 
-      - name: Push tuned config to auto-tune branch
-        if: always()
-        run: git push --force origin auto-tune || echo "nothing to push"
-
-      - name: Upload all recordings and transcripts
+      - name: Upload findings, recordings, transcripts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: call-artifacts-${{ github.run_id }}
+          name: findings-${{ github.run_id }}
           path: |
+            FINDINGS.md
+            artifacts/**/findings.json
             artifacts/**/recording.wav
             artifacts/**/transcript.json
-            artifacts/**/findings.json
-            FINDINGS.md
-            TUNING_LOG.md
-            config.yaml
           retention-days: 90

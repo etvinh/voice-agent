@@ -139,11 +139,14 @@ def main() -> None:
     results = []
     try:
         for f in files:
-            scenario = yaml.safe_load(f.read_text())
-            base = load_config()["base_persona"]
-            out = run_scenario(scenario, base)
-            if out:
-                results.append(out)
+            try:
+                scenario = yaml.safe_load(f.read_text())
+                base = load_config()["base_persona"]
+                out = run_scenario(scenario, base)
+                if out:
+                    results.append(out)
+            except Exception as e:
+                print(f"  ⚠ scenario {f.name} failed: {e!r} — skipping")
     finally:
         cfg = load_config()             # always restore the persona we clobbered
         cfg["persona"] = original_persona
