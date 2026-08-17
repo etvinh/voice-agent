@@ -22,7 +22,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write           # push the tuned config to the auto-tune branch
+  contents: write           # push the tuned config to main
 
 jobs:
   tune:
@@ -81,16 +81,15 @@ jobs:
         run: |
           git config user.name  "patient-sim-tuner"
           git config user.email "actions@users.noreply.github.com"
-          git checkout -B auto-tune
           ./.venv/bin/python src/tuner.py
         # server logs help debug a failed run
       - name: Server log tail
         if: always()
         run: tail -n 60 server.log || true
 
-      - name: Push tuned config to auto-tune branch
+      - name: Push tuned config to main
         if: always()
-        run: git push --force origin auto-tune || echo "nothing to push"
+        run: git push origin HEAD:main || echo "nothing to push"
 
       - name: Upload all recordings and transcripts
         if: always()
