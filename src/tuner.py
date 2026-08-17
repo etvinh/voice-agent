@@ -135,6 +135,7 @@ def score_config():
         if transcript is None:
             continue
         review = review_transcript(transcript)
+        record_agent_findings(transcript["call_sid"], review)
         wav = ARTIFACTS_DIR / transcript["call_sid"] / "recording.wav"
         audio = audio_review(wav)  # None if missing/errored -> text-only
         combined = combined_score(review.overall, audio)
@@ -159,6 +160,18 @@ def commit_config(message: str) -> None:
 def log_line(text: str) -> None:
     with open("TUNING_LOG.md", "a") as f:
         f.write(text + "\n")
+
+
+def record_agent_findings(call_sid: str, review) -> None:
+    """Save bugs found in the agent under test — the actual deliverable."""
+    findings = [f.model_dump() for f in review.agent_findings]
+    (ARTIFACTS_DIR / call_sid / "findings.json").write_text(json.dumps(findings, indent=2))
+    if findings:
+        with open("FINDINGS.md", "a") as f:
+            for x in findings:
+                f.write(f"- **[{x['severity']}]** {x['issue']}\n"
+                        f"  - evidence: \"{x['evidence']}\" (call {call_sid})\n")
+        print(f"    agent bugs found: {len(findings)}")
 
 
 # ---------- loop ----------
