@@ -10,7 +10,6 @@ must_not_happen, and collect the agent's bugs into a categorized FINDINGS report
 
 import json
 import os
-import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -94,7 +93,7 @@ def run_scenario(scenario: dict, base_persona: str) -> tuple[dict, str] | None:
     if transcript is None:
         print(f"  no transcript within {TRANSCRIPT_WAIT}s — skipped")
         return None
-    subprocess.run(["./.venv/bin/python", "src/fetch_recording.py", call_sid], check=False)
+    # (recording.wav is fetched by the server automatically — no need to re-fetch)
 
     review = review_transcript(transcript, scenario)
     (ARTIFACTS_DIR / call_sid / "findings.json").write_text(json.dumps({

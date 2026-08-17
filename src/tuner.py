@@ -113,9 +113,7 @@ def run_call() -> dict | None:
     if transcript is None:
         print(f"  call {call_sid}: no transcript within {TRANSCRIPT_WAIT}s")
         return None
-    # Save the dual-channel WAV alongside the transcript (best-effort).
-    subprocess.run(["./.venv/bin/python", "src/fetch_recording.py", call_sid], check=False)
-    return transcript
+    return transcript  # the server saves recording.wav in the background
 
 
 # ---------- scoring ----------
@@ -139,6 +137,10 @@ def score_config():
         review = review_transcript(transcript)
         record_agent_findings(transcript["call_sid"], review)
         wav = ARTIFACTS_DIR / transcript["call_sid"] / "recording.wav"
+        for _ in range(20):  # the server saves the WAV in the background; wait for it
+            if wav.exists():
+                break
+            time.sleep(2)
         audio = audio_review(wav)  # None if missing/errored -> text-only
         combined = combined_score(review.overall, audio)
         a = audio.get("audio_overall") if audio else "n/a"

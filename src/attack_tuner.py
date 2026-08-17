@@ -56,7 +56,7 @@ def run_once(persona: str, scenario: dict):
     if transcript is None:
         print("  no transcript — skipped")
         return None
-    subprocess.run(["./.venv/bin/python", "src/fetch_recording.py", call_sid], check=False)
+    # (recording.wav is saved by the server automatically)
     review = review_transcript(transcript, scenario)
     return transcript, review
 
