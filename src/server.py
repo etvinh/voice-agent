@@ -17,12 +17,14 @@ Run:
 """
 
 import asyncio
+import base64
 import hmac
 import json
 import logging
 import os
 import ssl
 import time
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -39,10 +41,20 @@ load_dotenv()
 
 PUBLIC_BASE_URL = os.environ["PUBLIC_BASE_URL"].strip().rstrip("/")
 OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
+TWILIO_ACCOUNT_SID = os.environ["TWILIO_ACCOUNT_SID"]
 TWILIO_AUTH_TOKEN = os.environ["TWILIO_AUTH_TOKEN"]
 
-# REST client used to hang up the call when the patient ends it.
-twilio_client = Client(os.environ["TWILIO_ACCOUNT_SID"], TWILIO_AUTH_TOKEN)
+# REST client used to hang up the call and fetch the recording.
+twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+
+# Background tasks (recording fetch + review) kept referenced so they aren't GC'd.
+_bg_tasks: set = set()
+
+
+def _spawn(coro):
+    t = asyncio.create_task(coro)
+    _bg_tasks.add(t)
+    t.add_done_callback(_bg_tasks.discard)
 
 # --- Auth ---
 # 1) /twiml: verify the request was signed by Twilio (HMAC keyed by the Auth Token).
@@ -157,20 +169,79 @@ async def open_openai_ws(model: str):
     )
 
 
-def write_transcript(call_sid: str, cfg: dict, turns: list, barge_ins: int) -> None:
-    """Persist the conversation + metadata so the tuner/evaluator can read it."""
+def write_transcript(call_sid: str, cfg: dict, turns: list, barge_ins: int) -> dict | None:
+    """Persist the conversation + metadata; return the transcript dict."""
     if not call_sid:
-        return
+        return None
     out_dir = ARTIFACTS_DIR / call_sid
     out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "transcript.json").write_text(json.dumps({
+    data = {
         "call_sid": call_sid,
         "ended_at": datetime.now(timezone.utc).isoformat(),
         "config": cfg,
         "barge_ins": barge_ins,
         "turns": turns,  # [{speaker, text, t}] in order
-    }, indent=2))
+    }
+    (out_dir / "transcript.json").write_text(json.dumps(data, indent=2))
     log.info("wrote transcript for %s (%d turns)", call_sid, len(turns))
+    return data
+
+
+async def fetch_recording(call_sid: str, dest: Path) -> bool:
+    """Poll Twilio until the recording is processed, then download the WAV."""
+    def _try() -> bool:
+        recs = twilio_client.recordings.list(call_sid=call_sid, limit=1)
+        if not recs or recs[0].status != "completed":
+            return False
+        url = (f"https://api.twilio.com/2010-04-01/Accounts/{TWILIO_ACCOUNT_SID}"
+               f"/Recordings/{recs[0].sid}.wav")
+        auth = base64.b64encode(f"{TWILIO_ACCOUNT_SID}:{TWILIO_AUTH_TOKEN}".encode()).decode()
+        req = urllib.request.Request(url, headers={"Authorization": f"Basic {auth}"})
+        with urllib.request.urlopen(req, context=SSL_CONTEXT) as r:
+            dest.write_bytes(r.read())
+        return True
+
+    for _ in range(30):  # up to ~60s
+        try:
+            if await asyncio.to_thread(_try):
+                return True
+        except Exception as e:
+            log.error("recording fetch error for %s: %r", call_sid, e)
+        await asyncio.sleep(2)
+    return False
+
+
+async def save_findings(call_sid: str, transcript: dict, out_dir: Path) -> None:
+    """Always save a timestamped bug report. Skip if one already exists (a
+    scenario-aware review from the runner/tuner wins)."""
+    findings_path = out_dir / "findings.json"
+    if findings_path.exists() or not os.environ.get("ANTHROPIC_API_KEY"):
+        return
+    try:
+        from reviewer import review_transcript  # lazy: server doesn't need Anthropic to run
+        review = await asyncio.to_thread(review_transcript, transcript)
+        findings = [f.model_dump() for f in review.agent_findings]
+        ts = datetime.now(timezone.utc).isoformat()
+        findings_path.write_text(json.dumps({
+            "call_sid": call_sid, "reviewed_at": ts,
+            "patient_overall": review.overall, "agent_findings": findings,
+        }, indent=2))
+        with open("FINDINGS.md", "a") as f:
+            f.write(f"\n### {call_sid} — {ts}\n")
+            f.write("- no issues found\n" if not findings else "")
+            for x in findings:
+                f.write(f"- **[{x['severity']}]** {x['issue']}\n  - evidence: \"{x['evidence']}\"\n")
+        log.info("saved findings for %s (%d issues)", call_sid, len(findings))
+    except Exception as e:
+        log.error("review failed for %s: %r", call_sid, e)
+
+
+async def finalize_call(call_sid: str, transcript: dict) -> None:
+    """After every call: always save the recording, then a timestamped report."""
+    out_dir = ARTIFACTS_DIR / call_sid
+    ok = await fetch_recording(call_sid, out_dir / "recording.wav")
+    log.info("recording %s for %s", "saved" if ok else "NOT saved", call_sid)
+    await save_findings(call_sid, transcript, out_dir)
 
 
 @app.websocket("/media-stream")
@@ -304,5 +375,9 @@ async def media_stream(twilio_ws: WebSocket):
 
         await asyncio.gather(twilio_to_openai(), openai_to_twilio())
 
-    write_transcript(state["call_sid"], cfg, turns, barge_ins)
+    transcript = write_transcript(state["call_sid"], cfg, turns, barge_ins)
+    if transcript:
+        # Always save the recording + a timestamped bug report, in the background
+        # so we don't block teardown. Covers every call path (call.py, runner, tuner).
+        _spawn(finalize_call(state["call_sid"], transcript))
     log.info("WS: session closed")

@@ -13,6 +13,7 @@ import os
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
@@ -95,8 +96,14 @@ def run_scenario(scenario: dict, base_persona: str) -> tuple[dict, str] | None:
     subprocess.run(["./.venv/bin/python", "src/fetch_recording.py", call_sid], check=False)
 
     review = review_transcript(transcript, scenario)
-    (ARTIFACTS_DIR / call_sid / "findings.json").write_text(
-        json.dumps([f.model_dump() for f in review.agent_findings], indent=2))
+    (ARTIFACTS_DIR / call_sid / "findings.json").write_text(json.dumps({
+        "call_sid": call_sid,
+        "reviewed_at": datetime.now(timezone.utc).isoformat(),
+        "scenario": scenario["id"],
+        "category": scenario["category"],
+        "patient_overall": review.overall,
+        "agent_findings": [f.model_dump() for f in review.agent_findings],
+    }, indent=2))
     print(f"  patient overall={review.overall}  agent bugs={len(review.agent_findings)}")
     return scenario, call_sid, review
 
@@ -106,7 +113,8 @@ def write_report(results: list) -> None:
     for scenario, call_sid, review in results:
         by_cat.setdefault(scenario["category"], []).append((scenario, call_sid, review))
 
-    lines = ["# Findings — agent under test\n"]
+    lines = ["# Findings — agent under test",
+             f"_generated {datetime.now(timezone.utc).isoformat()}_\n"]
     total = 0
     for cat, items in by_cat.items():
         lines.append(f"\n## {cat}\n")

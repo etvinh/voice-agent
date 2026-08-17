@@ -19,6 +19,7 @@ import json
 import os
 import subprocess
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from statistics import mean
 
@@ -165,12 +166,16 @@ def log_line(text: str) -> None:
 def record_agent_findings(call_sid: str, review) -> None:
     """Save bugs found in the agent under test — the actual deliverable."""
     findings = [f.model_dump() for f in review.agent_findings]
-    (ARTIFACTS_DIR / call_sid / "findings.json").write_text(json.dumps(findings, indent=2))
+    ts = datetime.now(timezone.utc).isoformat()
+    (ARTIFACTS_DIR / call_sid / "findings.json").write_text(json.dumps({
+        "call_sid": call_sid, "reviewed_at": ts, "agent_findings": findings,
+    }, indent=2))
     if findings:
         with open("FINDINGS.md", "a") as f:
+            f.write(f"\n### {call_sid} — {ts}\n")
             for x in findings:
                 f.write(f"- **[{x['severity']}]** {x['issue']}\n"
-                        f"  - evidence: \"{x['evidence']}\" (call {call_sid})\n")
+                        f"  - evidence: \"{x['evidence']}\"\n")
         print(f"    agent bugs found: {len(findings)}")
 
 
