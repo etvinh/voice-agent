@@ -23,11 +23,15 @@ cleanup() { [ -n "$SRV_PID" ] && kill "$SRV_PID" 2>/dev/null || true
             [ -n "$CF_PID" ] && kill "$CF_PID" 2>/dev/null || true; }
 trap cleanup EXIT
 
+# 0. clear any stale server/tunnel from a previous run
+lsof -ti tcp:5050 | xargs kill -9 2>/dev/null || true
+: > /tmp/cf.log; : > /tmp/server.log
+
 # 1. public tunnel
 cloudflared tunnel --url http://localhost:5050 > /tmp/cf.log 2>&1 &
 CF_PID=$!
 for _ in $(seq 1 20); do
-  URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/cf.log | head -1) && [ -n "$URL" ] && break
+  URL=$(grep -aoE 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/cf.log | head -1) && [ -n "$URL" ] && break
   sleep 1
 done
 [ -z "${URL:-}" ] && { echo "tunnel failed"; cat /tmp/cf.log; exit 1; }
@@ -37,8 +41,9 @@ echo "tunnel: $PUBLIC_BASE_URL"
 # 2. relay server (reads keys + STREAM_SECRET from .env)
 ./.venv/bin/python -m uvicorn server:app --app-dir src --host 0.0.0.0 --port 5050 > /tmp/server.log 2>&1 &
 SRV_PID=$!
-for _ in $(seq 1 20); do curl -sf "https://$PUBLIC_BASE_URL/health" >/dev/null && break; sleep 1; done
-curl -sf "https://$PUBLIC_BASE_URL/health" >/dev/null || { echo "server unhealthy"; cat /tmp/server.log; exit 1; }
+# probe the server locally (fast + reliable); the tunnel only needs to exist for Twilio
+for _ in $(seq 1 30); do curl -sf "http://localhost:5050/health" >/dev/null && break; sleep 1; done
+curl -sf "http://localhost:5050/health" >/dev/null || { echo "server unhealthy"; cat /tmp/server.log; exit 1; }
 echo "server: healthy"
 
 # 3. run the selected job (scenario suite / tuner / attacker)
